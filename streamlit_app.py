@@ -373,35 +373,311 @@ if not st.session_state.processed:
         """, unsafe_allow_html=True)
 
 else:
-    st.header("💬 Smart Chat")
+    # Main tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["💬 Smart Chat", "📊 Analytics", "🔍 Document Comparison", "📥 Export"])
     
-    # Chat history
-    for msg in st.session_state.chat_history:
-        if msg['role'] == 'user':
-            st.chat_message("user").write(msg['content'])
+    with tab1:
+        st.header("💬 Smart Chat")
+        
+        # Chat history
+        for msg in st.session_state.chat_history:
+            if msg['role'] == 'user':
+                st.chat_message("user").write(msg['content'])
+            else:
+                st.chat_message("assistant").write(msg['content'])
+        
+        # Chat input
+        if 'last_prompt' not in st.session_state:
+            st.session_state.last_prompt = ""
+            
+        prompt = st.text_input(f"Ask in {st.session_state.language}...", key="chat_input")
+        
+        if prompt and prompt != st.session_state.last_prompt:
+            st.session_state.last_prompt = prompt
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            st.chat_message("user").write(prompt)
+            
+            # Combine all documents
+            context = "\n\n".join([f"Document: {doc['name']}\n{doc['content']}" for doc in st.session_state.documents])
+            
+            with st.spinner("🤖 Generating intelligent response..."):
+                response = chat_with_groq(prompt, context[:8000], st.session_state.language)
+            
+            st.session_state.chat_history.append({"role": "assistant", "content": response})
+            st.chat_message("assistant").write(response)
+            st.rerun()
+    
+    with tab2:
+        st.header("📊 Advanced Analytics")
+        
+        if st.session_state.documents:
+            # Overview metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            total_words = sum(doc['word_count'] for doc in st.session_state.documents)
+            total_reading_time = sum(doc['reading_time'] for doc in st.session_state.documents)
+            languages = list(set(doc['language'] for doc in st.session_state.documents))
+            avg_sentiment = sum(doc['sentiment_score'] for doc in st.session_state.documents) / len(st.session_state.documents)
+            
+            with col1:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-number">{len(st.session_state.documents)}</div>
+                    <div class="metric-label">Documents</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-number">{total_words:,}</div>
+                    <div class="metric-label">Total Words</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-number">{total_reading_time}</div>
+                    <div class="metric-label">Minutes to Read</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col4:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-number">{avg_sentiment:.2f}</div>
+                    <div class="metric-label">Avg Sentiment</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # Charts
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Document Statistics")
+                
+                # Word count chart
+                doc_data = pd.DataFrame([
+                    {'Document': doc['name'], 'Words': doc['word_count'], 'Reading Time': doc['reading_time']}
+                    for doc in st.session_state.documents
+                ])
+                
+                fig = px.bar(doc_data, x='Document', y='Words', title='Word Count by Document')
+                fig.update_layout(xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.subheader("🌍 Language Distribution")
+                
+                # Language distribution
+                lang_counts = Counter(doc['language'] for doc in st.session_state.documents)
+                lang_df = pd.DataFrame(list(lang_counts.items()), columns=['Language', 'Count'])
+                
+                fig = px.pie(lang_df, values='Count', names='Language', title='Documents by Language')
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Sentiment analysis
+            st.subheader("😊 Sentiment Analysis")
+            
+            sentiment_data = pd.DataFrame([
+                {'Document': doc['name'], 'Sentiment': doc['sentiment'], 'Score': doc['sentiment_score']}
+                for doc in st.session_state.documents
+            ])
+            
+            fig = px.bar(sentiment_data, x='Document', y='Score', color='Sentiment',
+                        title='Sentiment Analysis by Document')
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Top topics across all documents
+            st.subheader("🏷️ Top Topics Across All Documents")
+            
+            all_topics = []
+            for doc in st.session_state.documents:
+                all_topics.extend(doc['topics'])
+            
+            topic_counter = Counter()
+            for topic, count in all_topics:
+                topic_counter[topic] += count
+            
+            top_topics = topic_counter.most_common(10)
+            
+            if top_topics:
+                topics_df = pd.DataFrame(top_topics, columns=['Topic', 'Frequency'])
+                fig = px.bar(topics_df, x='Frequency', y='Topic', orientation='h',
+                           title='Most Frequent Topics')
+                st.plotly_chart(fig, use_container_width=True)
         else:
-            st.chat_message("assistant").write(msg['content'])
+            st.info("📊 Upload documents to see analytics")
     
-    # Chat input
-    if 'last_prompt' not in st.session_state:
-        st.session_state.last_prompt = ""
+    with tab3:
+        st.header("🔍 Document Comparison")
         
-    prompt = st.text_input(f"Ask in {st.session_state.language}...", key="chat_input")
+        if len(st.session_state.documents) >= 2:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                doc1_name = st.selectbox("Select First Document", 
+                                       [doc['name'] for doc in st.session_state.documents],
+                                       key="doc1")
+            
+            with col2:
+                doc2_name = st.selectbox("Select Second Document", 
+                                       [doc['name'] for doc in st.session_state.documents],
+                                       key="doc2")
+            
+            if doc1_name != doc2_name:
+                doc1 = next(doc for doc in st.session_state.documents if doc['name'] == doc1_name)
+                doc2 = next(doc for doc in st.session_state.documents if doc['name'] == doc2_name)
+                
+                # Similarity calculation
+                similarity = difflib.SequenceMatcher(None, doc1['content'], doc2['content']).ratio()
+                
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-number">{similarity:.2%}</div>
+                    <div class="metric-label">Similarity Score</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader(f"📄 {doc1_name}")
+                    st.write(f"**Language:** {doc1['language']}")
+                    st.write(f"**Sentiment:** {doc1['sentiment']} ({doc1['sentiment_score']:.2f})")
+                    st.write(f"**Word Count:** {doc1['word_count']:,}")
+                    st.write(f"**Reading Time:** {doc1['reading_time']} min")
+                    
+                    st.write("**Top Topics:**")
+                    for topic, count in doc1['topics'][:5]:
+                        st.write(f"• {topic} ({count})")
+                
+                with col2:
+                    st.subheader(f"📄 {doc2_name}")
+                    st.write(f"**Language:** {doc2['language']}")
+                    st.write(f"**Sentiment:** {doc2['sentiment']} ({doc2['sentiment_score']:.2f})")
+                    st.write(f"**Word Count:** {doc2['word_count']:,}")
+                    st.write(f"**Reading Time:** {doc2['reading_time']} min")
+                    
+                    st.write("**Top Topics:**")
+                    for topic, count in doc2['topics'][:5]:
+                        st.write(f"• {topic} ({count})")
+                
+                # Common and unique topics
+                st.subheader("🏷️ Topic Analysis")
+                
+                doc1_topics = set(topic for topic, _ in doc1['topics'])
+                doc2_topics = set(topic for topic, _ in doc2['topics'])
+                
+                common_topics = doc1_topics.intersection(doc2_topics)
+                unique_doc1 = doc1_topics - doc2_topics
+                unique_doc2 = doc2_topics - doc1_topics
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write("**Common Topics:**")
+                    for topic in list(common_topics)[:5]:
+                        st.write(f"• {topic}")
+                
+                with col2:
+                    st.write(f"**Unique to {doc1_name}:**")
+                    for topic in list(unique_doc1)[:5]:
+                        st.write(f"• {topic}")
+                
+                with col3:
+                    st.write(f"**Unique to {doc2_name}:**")
+                    for topic in list(unique_doc2)[:5]:
+                        st.write(f"• {topic}")
+        
+        elif len(st.session_state.documents) == 1:
+            st.info("📄 Upload at least 2 documents to compare")
+        else:
+            st.info("📄 Upload documents to enable comparison")
     
-    if prompt and prompt != st.session_state.last_prompt:
-        st.session_state.last_prompt = prompt
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
-        st.chat_message("user").write(prompt)
+    with tab4:
+        st.header("📥 Export & Reports")
         
-        # Combine all documents
-        context = "\n\n".join([f"Document: {doc['name']}\n{doc['content']}" for doc in st.session_state.documents])
-        
-        with st.spinner("🤖 Generating intelligent response..."):
-            response = chat_with_groq(prompt, context[:8000], st.session_state.language)
-        
-        st.session_state.chat_history.append({"role": "assistant", "content": response})
-        st.chat_message("assistant").write(response)
-        st.rerun()
+        if st.session_state.documents:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("💾 Export Options")
+                
+                # Export chat history
+                if st.session_state.chat_history:
+                    chat_json = json.dumps(st.session_state.chat_history, indent=2)
+                    st.download_button(
+                        "📝 Download Chat History (JSON)",
+                        chat_json,
+                        f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        "application/json"
+                    )
+                
+                # Export analytics data
+                analytics_data = {
+                    'summary': {
+                        'total_documents': len(st.session_state.documents),
+                        'total_words': sum(doc['word_count'] for doc in st.session_state.documents),
+                        'total_reading_time': sum(doc['reading_time'] for doc in st.session_state.documents),
+                        'languages': list(set(doc['language'] for doc in st.session_state.documents))
+                    },
+                    'documents': st.session_state.documents
+                }
+                
+                analytics_json = json.dumps(analytics_data, indent=2, default=str)
+                st.download_button(
+                    "📊 Download Analytics Data (JSON)",
+                    analytics_json,
+                    f"analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    "application/json"
+                )
+            
+            with col2:
+                st.subheader("📋 Summary Report")
+                
+                total_words = sum(doc['word_count'] for doc in st.session_state.documents)
+                total_reading_time = sum(doc['reading_time'] for doc in st.session_state.documents)
+                languages = list(set(doc['language'] for doc in st.session_state.documents))
+                
+                report = f"""
+# Document Analysis Report
+
+## Summary
+- **Total Documents:** {len(st.session_state.documents)}
+- **Total Words:** {total_words:,}
+- **Estimated Reading Time:** {total_reading_time} minutes
+- **Languages Detected:** {', '.join(languages)}
+
+## Document Details
+
+"""
+                
+                for doc in st.session_state.documents:
+                    report += f"""
+### {doc['name']}
+- **Language:** {doc['language']}
+- **Sentiment:** {doc['sentiment']} (Score: {doc['sentiment_score']:.2f})
+- **Word Count:** {doc['word_count']:,}
+- **Reading Time:** {doc['reading_time']} minutes
+- **Top Topics:** {', '.join([topic for topic, _ in doc['topics'][:3]])}
+
+"""
+                
+                st.markdown(report)
+                
+                st.download_button(
+                    "📄 Download Report (Markdown)",
+                    report,
+                    f"document_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    "text/markdown"
+                )
+        else:
+            st.info("📄 Upload documents to enable export features")
 
 # Footer
 st.markdown("""
