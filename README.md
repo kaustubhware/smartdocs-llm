@@ -3,7 +3,7 @@
 > **Advanced AI-Powered Document Analysis & Multi-Language Processing Solution**
 
 ## 🌟 Live Demo
-**[🔗 Try the Live Application]([https://smartdocs.streamlit.app](https://ai-document-chat.streamlit.app/))**
+**[🔗 Try the Live Application](https://ai-document-chat.streamlit.app)**
 
 ## ✨ Key Features
 
